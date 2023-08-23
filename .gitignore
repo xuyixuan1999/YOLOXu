@@ -1,0 +1,7 @@
+*
+/tiny-tensorrt
+!/*
+!CMakeLists.txt
+!*.cpp
+!*.h
+!*.cu
