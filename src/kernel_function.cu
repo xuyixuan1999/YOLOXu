@@ -29,7 +29,6 @@ void blobFromImageCuda(float* blobDev, const cv::Mat& img, const cudaStream_t& s
     int channels = img.channels();
     int img_h = img.rows;
     int img_w = img.cols;
-    int64_t blobSize = channels * img_h * img_w * sizeof(float);
 
     // Copy image data from CPU to GPU using the provided stream
     uchar* imgDataDev = nullptr;

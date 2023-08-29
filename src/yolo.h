@@ -35,6 +35,6 @@ private:
     std::vector<int> strides = {8, 16, 32};
 
 public:
-    Yolo(int input_h, int input_w, int num_classes, float bbox_conf_thresh, float iou_threshold);
+    Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float iouThresh);
     ~Yolo();
 };
