@@ -70,6 +70,7 @@ void Infer::CopyFromHostToDevice(int bindIndex, float* input, const cudaStream_t
 
 void Infer::CopyFromDeviceToHost(std::vector<float>& output, int bindIndex, const cudaStream_t& stream)
 {
+    output.clear();
     output.resize(mBindingSize[bindIndex] / sizeof(mBindingDataType[bindIndex]));
     CHECK(cudaMemcpy(output.data(), mBinding[bindIndex], 
     mBindingSize[bindIndex], cudaMemcpyDeviceToHost));

@@ -23,7 +23,7 @@ int main()
     const std::string input_image_path = std::string("./car.jpg");
 
     Infer* infer = new Infer(engine_dir, ILogger::Severity::kWARNING);
-    Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, NMS_THRESH);
+    Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, NMS_THRESH, false);
     
     // read and resize image
     cv::Mat img = cv::imread(input_image_path);

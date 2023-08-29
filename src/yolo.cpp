@@ -1,9 +1,11 @@
 #include "yolo.h"
 #include <iostream>
 #include <math.h>
+#include "error.cuh"
 
-void Yolo::GenerateGridsAndStride(std::vector<int>& strides, int* gridStrides)
-{
+void Yolo::GenerateGridsAndStride(std::vector<int>& strides, int* gridStridesHost)
+ {
+
     for (auto stride : strides)
     {
         int num_grid_y = inputH / stride;
@@ -12,9 +14,9 @@ void Yolo::GenerateGridsAndStride(std::vector<int>& strides, int* gridStrides)
         {
             for (int g0 = 0; g0 < num_grid_x; g0++)
             {
-                *gridStrides++ = g0;
-                *gridStrides++ = g1;
-                *gridStrides++ = stride;
+                *gridStridesHost++ = g0;
+                *gridStridesHost++ = g1;
+                *gridStridesHost++ = stride;
             }
         }
     }
@@ -70,7 +72,7 @@ void Yolo::NMS(float* objects, float iouThresh, int width)
     }
 }
 
-void Yolo::GenerateYoloProposals(int* gridStrides, int gridStrideSize, float* outputSrc, 
+void Yolo::GenerateYoloProposals(int* gridStridesHost, int gridStrideSize, float* outputSrc, 
 float bboxConfThresh, float* objects, int numClass)
 {
     // outputSrc: [bs, 8400, 4 + 1 + NumClasses]
@@ -78,9 +80,9 @@ float bboxConfThresh, float* objects, int numClass)
     int count = 0;
     for (int anchorIdx = 0; anchorIdx < gridStrideSize; anchorIdx++)
     {
-        int x = gridStrides[3*anchorIdx];
-        int y = gridStrides[3*anchorIdx+1];
-        int stride = gridStrides[3*anchorIdx+2];
+        int x = gridStridesHost[3*anchorIdx];
+        int y = gridStridesHost[3*anchorIdx+1];
+        int stride = gridStridesHost[3*anchorIdx+2];
         // psrc = outputSrc[anchorIdx]
         float* psrc = outputSrc + anchorIdx * (4 + 1 + numClass);
 
@@ -118,20 +120,22 @@ float bboxConfThresh, float* objects, int numClass)
 
 std::vector<Object> Yolo::DecodeOutput(float* outputSrc, float scale, const int img_w, const int img_h)
 {   
-    mOutputSrc = outputSrc;
-    GenerateYoloProposals(gridStrides, gridStrideSize, outputSrc, 
-    bboxConfThresh, mOutputObject, NumClasses);
+    std::cout << "==> DecodeOutput" << std::endl;
+    mOutputSrcHost = outputSrc;
+    std::cout << "==> DecodeOutput" << std::endl;
+    GenerateYoloProposals(gridStridesHost, gridStrideSize, outputSrc, 
+    bboxConfThresh, mOutputObjectHost, NumClasses);
 
-    int count = mOutputObject[0];
-    std::cout << "num of boxes before nms: " << mOutputObject[0] << std::endl;
+    int count = mOutputObjectHost[0];
+    std::cout << "num of boxes before nms: " << mOutputObjectHost[0] << std::endl;
 
-    NMS(mOutputObject, iouThresh, mOutputWidth);
-    std::cout << "num of boxes after nms: " << mOutputObject[0] << std::endl;
+    NMS(mOutputObjectHost, iouThresh, mOutputWidth);
+    std::cout << "num of boxes after nms: " << mOutputObjectHost[0] << std::endl;
 
     std::vector<Object> objects;
     for (int i = 0; i < count; ++i)
     {
-        float* pobject = mOutputObject + 1 + i * mOutputWidth;
+        float* pobject = mOutputObjectHost + 1 + i * mOutputWidth;
         if (pobject[6] == 0)
             continue;
         float x0 = pobject[0] / scale;
@@ -156,16 +160,16 @@ std::vector<Object> Yolo::DecodeOutput(float* outputSrc, float scale, const int 
     return objects;
 }
 
-Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float iouThresh)
+Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float iouThresh, bool isDevice)
 {
     this->NumClasses = NumClasses;
     this->inputH = inputH;
     this->inputW = inputW;
     this->mOutputWidth = 7;
-    this->mOutputSrc = new float[8400 * (4 + 1 + NumClasses)];
-    this->mOutputObject = new float[1 + 8400 * (4 + 1 + NumClasses)];
     this->bboxConfThresh = bboxConfThresh;
     this->iouThresh = iouThresh;
+    this->isDevice = isDevice;
+
     // generate grid strides
     for (auto stride : this->strides)
     {
@@ -173,14 +177,39 @@ Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float i
         int num_grid_x = inputW / stride;
         this->gridStrideSize += num_grid_y * num_grid_x;
     }
-    this->gridStrides = new int[this->gridStrideSize * this->strides.size()];
-    this->GenerateGridsAndStride(this->strides, this->gridStrides);
+    this->gridStridesHost = new int[this->gridStrideSize * this->strides.size()];
+    this->GenerateGridsAndStride(this->strides, this->gridStridesHost);
+
+    switch (isDevice)
+    {
+    case true:
+        CHECK(cudaMalloc((void**)&this->gridStridesDevice, 
+        this->gridStrideSize * this->strides.size() * sizeof(int)));
+        CHECK(cudaMemcpy(this->gridStridesDevice, this->gridStridesHost, 
+        this->gridStrideSize * this->strides.size() * sizeof(int), cudaMemcpyHostToDevice));
+        CHECK(cudaMalloc((void**)&this->mOutputSrcDevice, 8400 * (4 + 1 + NumClasses) * sizeof(float)));
+        CHECK(cudaMalloc((void**)&this->mOutputObjectDevice, (1 + 8400 * this->mOutputWidth) * sizeof(float)));
+        break;
+    case false:
+        this->mOutputSrcHost = nullptr;
+        this->mOutputObjectHost = new float[1 + 8400 * this->mOutputWidth];
+        break;
+    }
 }
 
 Yolo::~Yolo()
 {
     std::cout << "===> Destroy Yolo instance" <<std::endl;
-    delete[] this->gridStrides;
-    // delete[] this->mOutputSrc;
-    delete[] this->mOutputObject;
+    switch (isDevice)
+    {
+    case true:
+        CHECK(cudaFree(this->gridStridesDevice));
+        CHECK(cudaFree(this->mOutputSrcDevice));
+        CHECK(cudaFree(this->mOutputObjectDevice));
+        break;
+    case false:
+        delete[] this->gridStridesHost;
+        delete[] this->mOutputObjectHost;
+        break;
+}
 }
