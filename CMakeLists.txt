@@ -9,6 +9,14 @@ add_definitions(-std=c++11)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_BUILD_TYPE "Debug")
 
+# please change the path of cuda cudnn and tensorrt to your own path
+set(CUDA_DIR "/usr/local/cuda")
+set(CUDNN_DIR "/usr/lib/aarch64-linux-gnu")
+set(TENSORRT_DIR "/usr/src/tensorrt")
+
+# add compute capability of the GPU
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_87,code=sm_87")
+
 find_package(CUDA REQUIRED)
 
 set(CMAKE_CUDA_COMPILER  /usr/local/cuda/bin/nvcc)
@@ -18,20 +26,18 @@ file(GLOB CPPS
     ${PROJECT_SOURCE_DIR}/src/*.cu
     ${PROJECT_SOURCE_DIR}/src/*.h
 )
-list(REMOVE_ITEM CPPS ${PROJECT_SOURCE_DIR}/src/yolox.cpp)
+list(REMOVE_ITEM CPPS ${PROJECT_SOURCE_DIR}/src/multi.cpp)
 set(src_list ${CPPS})
 
-# include_directories(${PROJECT_SOURCE_DIR}/tiny-tensorrt)
-
 # cuda
-include_directories(/usr/local/cuda/include)
-link_directories(/usr/local/cuda/lib64)
+include_directories(${CUDA_DIR}/include)
+link_directories(${CUDA_DIR}/lib64)
 # cudnn
-include_directories(/usr/lib/aarch64-linux-gnu/include)
-link_directories(/usr/lib/aarch64-linux-gnu/lib64)
+include_directories(${CUDNN_DIR}/include)
+link_directories(${CUDNN_DIR}/lib64)
 # tensorrt
-include_directories(/usr/src/tensorrt/include)
-link_directories(/usr/src/tensorrt/lib)
+include_directories(${TENSORRT_DIR}/include)
+link_directories(${TENSORRT_DIR}/lib)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wfatal-errors -D_MWAITXINTRIN_H_INCLUDED")
 
@@ -40,13 +46,6 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_executable(yolox ${src_list})
 
-# target_compile_options(yolox PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-#     --generate-code arch=compute_53,code=sm_53
-#     --generate-code arch=compute_62,code=sm_62
-#     --generate-code arch=compute_72,code=sm_72
-#     --generate-code arch=compute_75,code=sm_75
-#     --generate-code arch=compute_86,code=sm_86
-#     >)
 target_link_libraries(yolox nvinfer)
 target_link_libraries(yolox cudart)
 target_link_libraries(yolox ${OpenCV_LIBS})

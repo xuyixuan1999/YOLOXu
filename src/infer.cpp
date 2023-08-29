@@ -1,10 +1,8 @@
-#pragma once
 #include "infer.h"
 #include "error.cuh"
-#include <opencv2/opencv.hpp>
+#include <fstream>
 #include <iostream>
 #include <NvInfer.h>
-#include <cuda_runtime.h>
 
 using namespace nvinfer1;
 
@@ -51,44 +49,48 @@ void TrtLogger::log(Severity severity, const char* msg) noexcept
     std::cerr << msg << std::endl;
 }
 
-void Infer::CopyFromHostToBufferH(const std::vector<float>& input, int bindIndex)
+// inference
+void Infer::CopyFromDeviceToDeviceIn(float* input, int bindIndex, const cudaStream_t& stream)
 {
-    memcpy(cpu_buffer[bindIndex], input.data(), mBindingSize[bindIndex]);
-}
-
-void Infer::CopyFromHostToDevice(int bindIndex, const cudaStream_t& stream)
-{
-    CHECK(cudaMemcpyAsync(gpu_buffer[bindIndex], cpu_buffer[bindIndex], 
-    mBindingSize[bindIndex], cudaMemcpyHostToDevice, stream));
-}
-
-void Infer::CopyFromDeviceToHost(int bindIndex, const cudaStream_t& stream)
-{
-    CHECK(cudaMemcpyAsync(cpu_buffer[bindIndex], gpu_buffer[bindIndex],
+    CHECK(cudaMemcpyAsync(mBinding[bindIndex], input, 
     mBindingSize[bindIndex], cudaMemcpyDeviceToDevice, stream));
 }
 
-void Infer::CopyFromBufferHToHost(std::vector<float>& output, int bindIndex)
+void Infer::CopyFromDeviceToDeviceOut(float* output, int bindIndex, const cudaStream_t& stream)
 {
-    output.resize(mBindingSize[bindIndex]);
-    memcpy(output.data(), cpu_buffer[bindIndex], mBindingSize[bindIndex]);
+    CHECK(cudaMemcpyAsync(output, mBinding[bindIndex], 
+    mBindingSize[bindIndex], cudaMemcpyDeviceToDevice, stream));
+}
+
+void Infer::CopyFromHostToDevice(int bindIndex, float* input, const cudaStream_t& stream)
+{
+    CHECK(cudaMemcpyAsync(mBinding[bindIndex], input, 
+    mBindingSize[bindIndex], cudaMemcpyHostToDevice, stream));
+}
+
+void Infer::CopyFromDeviceToHost(std::vector<float>& output, int bindIndex, const cudaStream_t& stream)
+{
+    output.resize(mBindingSize[bindIndex] / sizeof(mBindingDataType[bindIndex]));
+    CHECK(cudaMemcpy(output.data(), mBinding[bindIndex], 
+    mBindingSize[bindIndex], cudaMemcpyDeviceToHost));
+}
+
+void Infer::CopyFromDeviceToHost(float* output, int bindIndex, const cudaStream_t& stream)
+{
+    CHECK(cudaMemcpyAsync(output, mBinding[bindIndex], 
+    mBindingSize[bindIndex], cudaMemcpyDeviceToHost, stream));
 }
 
 bool Infer::Forward()
 {
-    return mContext->executeV2(&gpu_buffer[0]);
+    return mContext->executeV2(mBinding.data());
 }
 
 bool Infer::Forward(const cudaStream_t& stream)
 {
-    return mContext->enqueueV2(gpu_buffer.data(), stream, nullptr);
+    return mContext->enqueueV2(mBinding.data(), stream, nullptr);
 }
 
-void Infer::ChangeBufferD(int bindIndex, float* input, const cudaStream_t& stream)
-{
-    // void* blobVoidPtr = static_cast<void*>(input);
-    CHECK(cudaMemcpyAsync(gpu_buffer[bindIndex], input, mBindingSize[bindIndex], cudaMemcpyDeviceToDevice, stream));
-}
 
 Infer::Infer(const std::string& engine_dir, nvinfer1::ILogger::Severity severity)
 {  
@@ -115,7 +117,6 @@ Infer::Infer(const std::string& engine_dir, nvinfer1::ILogger::Severity severity
     // deserialize engine
     mRuntime = createInferRuntime(gLogger);
     mEngine = mRuntime->deserializeCudaEngine(engine_string.data(), fsize);
-
     if (mEngine == nullptr)
     {
         std::cout << "Faild loading engine!" << std::endl;
@@ -131,8 +132,6 @@ Infer::Infer(const std::string& engine_dir, nvinfer1::ILogger::Severity severity
     mBindingName.resize(nbBindings);
     mBindingDims.resize(nbBindings);
     mBindingDataType.resize(nbBindings);
-    cpu_buffer.resize(nbBindings);
-    gpu_buffer.resize(nbBindings);
     
     for (int i = 0; i < nbBindings; i++)
     {
@@ -157,21 +156,17 @@ Infer::Infer(const std::string& engine_dir, nvinfer1::ILogger::Severity severity
         } else {
             std::cout<< "output: ";
         }
-        std::cout<<"binding bindIndex: "<< i << ", name: " << name<< ", size in byte: "<<totalSize;
-        std::cout<<" binding dims with " << dims.nbDims << " dimemsion" << std::endl;;
-    
         for(int j=0;j<dims.nbDims;j++) {
             std::cout << abs(dims.d[j]) << " x ";
         }
         std::cout << "\b\b  "<< std::endl;
 
-        // allocate_buffers
-        cpu_buffer[i] = nullptr;
-        gpu_buffer[i] = nullptr;
-        CHECK(cudaMallocHost(&cpu_buffer[i], totalSize));
-        CHECK(cudaMalloc(&gpu_buffer[i], totalSize));
+        std::cout<<"binding bindIndex: "<< i << ", name: " << name<< ", size in byte: "<<totalSize;
+        std::cout<<" binding dims with " << dims.nbDims << " dimemsion" << std::endl;;
+    
+        mBinding[i] = nullptr;
+        CHECK(cudaMalloc((void**)&mBinding[i], totalSize));
     }
-
 }
 
 Infer::~Infer()
@@ -180,10 +175,5 @@ Infer::~Infer()
     for (size_t i = 0; i < this->mBinding.size(); i++)
     {
         CHECK(cudaFree(this->mBinding[i]));
-    }
-    for (size_t i = 0; i < this->gpu_buffer.size(); ++i)
-    {
-        cudaFreeHost(this->cpu_buffer[i]);
-        cudaFree(this->gpu_buffer[i]);
     }
 }

@@ -1,44 +1,11 @@
-#include <time.h>
-
-#define DEVICE 0  // GPU id
-#define NMS_THRESH 0.45
-#define BBOX_CONF_THRESH 0.3
-
-static const int INPUT_W = 640;
-static const int INPUT_H = 640;
-static const int NUM_CLASSES = 80;
-// const char* INPUT_BLOB_NAME = "images";
-// const char* OUTPUT_BLOB_NAME = "output";
+#pragma once
+#include <opencv2/opencv.hpp>
+#include "yolo.h"
 
 // get cerurrent time in seconds
 double get_time();
 
-struct Object
-{
-    // cv::Rect_<float> rect;
-    float x, y, w, h;  // 左上角和右下角坐标
-    int label;
-    float prob;
-};
-
-
-void decode_outputs(float* prob, float* object, float scale, const int img_w, const int img_h);
-
-cv::Mat static_resize(cv::Mat& img);
-
-void generate_grids_and_stride(const int (&strides)[3], int* grid_strides);
-
-inline float box_iou(const Object& a, const Object& b);
-
-void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, int right);
-
-void qsort_descent_inplace(std::vector<Object>& faceobjects);
-
-void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold);
-
-void generate_yolox_proposals(int* grid_strides, int grid_strides_size, float* feat_blob, float prob_threshold, std::vector<Object>& objects);
-
-void decode_outputs(float* prob, std::vector<Object>& objects, float scale, const int img_w, const int img_h);
+cv::Mat static_resize(cv::Mat& img, int INPUT_W, int INPUT_H);
 
 void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f);
 
