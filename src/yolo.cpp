@@ -46,15 +46,14 @@ void Yolo::NMS(float* objects, float iouThresh, int width)
     for (int i = 0; i < count; ++i)
     {
         float* pcurrent = objects + 1 + i * width;
-        if (pcurrent[6] == 0)
-            continue;
+
         for (int j = 0; j < count; ++j)
         {
             float* pitem = objects + 1 + j * width;
-            if (pitem[6] == 0 || i == j || pitem[5] != pcurrent[5])
+            if ( i == j || pitem[5] != pcurrent[5])
                 continue;
             
-            if (pitem[4] > pcurrent[4])
+            if (pitem[4] >= pcurrent[4])
             {
                 if (pitem[4] == pcurrent[4] && j < i)
                     continue;
@@ -118,11 +117,12 @@ float bboxConfThresh, float* objects, int numClass)
     objects[0] = count;
 }
 
-std::vector<Object> Yolo::DecodeOutput(float* outputSrc, float scale, const int img_w, const int img_h)
+void Yolo::DecodeOutput(std::vector<Object>& objects, float* outputSrc, float scale, const int img_w, const int img_h)
 {   
-    std::cout << "==> DecodeOutput" << std::endl;
+    // clear keepFlag and count
+    memset(mOutputObjectHost, 0, (1 + gridStrideSize * mOutputWidth) * sizeof(float));
+    objects.clear();
     mOutputSrcHost = outputSrc;
-    std::cout << "==> DecodeOutput" << std::endl;
     GenerateYoloProposals(gridStridesHost, gridStrideSize, outputSrc, 
     bboxConfThresh, mOutputObjectHost, NumClasses);
 
@@ -132,7 +132,6 @@ std::vector<Object> Yolo::DecodeOutput(float* outputSrc, float scale, const int 
     NMS(mOutputObjectHost, iouThresh, mOutputWidth);
     std::cout << "num of boxes after nms: " << mOutputObjectHost[0] << std::endl;
 
-    std::vector<Object> objects;
     for (int i = 0; i < count; ++i)
     {
         float* pobject = mOutputObjectHost + 1 + i * mOutputWidth;
@@ -157,7 +156,58 @@ std::vector<Object> Yolo::DecodeOutput(float* outputSrc, float scale, const int 
         object.label = pobject[5];
         objects.push_back(object);
     }
-    return objects;
+}
+
+void Yolo::DecodeOutputDevice(std::vector<Object>& objects, float scale, const int img_w, const int img_h, const cudaStream_t& stream)
+{
+    // clear keepFlag and count
+    CHECK(cudaMemset(mOutputObjectDevice, 0, (1 + gridStrideSize * mOutputWidth) * sizeof(float)));
+    objects.clear();
+
+    CHECK(cudaMemcpyAsync(mOutputSrcDevice, tmpOutputSrc, 
+    gridStrideSize * (4 + 1 + NumClasses) * sizeof(float), cudaMemcpyDeviceToDevice, stream));
+
+    GenerateYoloProposalDevice(gridStridesDevice, gridStrideSize, mOutputSrcDevice, 
+    mOutputObjectDevice,bboxConfThresh, NumClasses, stream);
+
+    // CHECK(cudaMemcpy(mOutputObjectHost, mOutputObjectDevice, 
+    // (1 + gridStrideSize * mOutputWidth) * sizeof(float), cudaMemcpyDeviceToHost));
+    // std::cout<< "num of boxes before nms: " << mOutputObjectHost[0] << std::endl;
+    // int count = mOutputObjectHost[0];
+    // NMS(mOutputObjectHost, iouThresh, mOutputWidth);
+
+    FastNMSDevice(mOutputObjectDevice, iouThresh, mOutputWidth, topK, stream);
+    CHECK(cudaMemcpyAsync(mOutputObjectHost, mOutputObjectDevice, 
+    (1 + gridStrideSize * mOutputWidth) * sizeof(float), cudaMemcpyDeviceToHost, stream));
+
+    int count = mOutputObjectHost[0];
+    std::cout << "num of boxes before nms: " << count << std::endl;
+    for (int i = 0; i < count; ++i)
+    {
+        float* pobject = mOutputObjectHost + 1 + i * mOutputWidth;
+        if (pobject[6])
+        {
+            float x0 = pobject[0] / scale;
+            float y0 = pobject[1] / scale;
+            float x1 = (pobject[0] + pobject[2]) / scale;
+            float y1 = (pobject[1] + pobject[3]) / scale;
+            // clip 
+            x0 = std::max(std::min(x0, (float)(img_w - 1)), 0.f);
+            y0 = std::max(std::min(y0, (float)(img_h - 1)), 0.f);
+            x1 = std::max(std::min(x1, (float)(img_w - 1)), 0.f);
+            y1 = std::max(std::min(y1, (float)(img_h - 1)), 0.f);
+
+            Object object;
+            object.x = x0;
+            object.y = y0;
+            object.w = x1 - x0;
+            object.h = y1 - y0;
+            object.prob = pobject[4];
+            object.label = pobject[5];
+            objects.push_back(object);
+        }
+    }
+    std::cout << "num of boxes after nms: " << objects.size() << std::endl;
 }
 
 Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float iouThresh, bool isDevice)
@@ -180,36 +230,30 @@ Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float i
     this->gridStridesHost = new int[this->gridStrideSize * this->strides.size()];
     this->GenerateGridsAndStride(this->strides, this->gridStridesHost);
 
-    switch (isDevice)
+    if (isDevice)
     {
-    case true:
         CHECK(cudaMalloc((void**)&this->gridStridesDevice, 
         this->gridStrideSize * this->strides.size() * sizeof(int)));
         CHECK(cudaMemcpy(this->gridStridesDevice, this->gridStridesHost, 
         this->gridStrideSize * this->strides.size() * sizeof(int), cudaMemcpyHostToDevice));
-        CHECK(cudaMalloc((void**)&this->mOutputSrcDevice, 8400 * (4 + 1 + NumClasses) * sizeof(float)));
-        CHECK(cudaMalloc((void**)&this->mOutputObjectDevice, (1 + 8400 * this->mOutputWidth) * sizeof(float)));
-        break;
-    case false:
-        this->mOutputSrcHost = nullptr;
-        this->mOutputObjectHost = new float[1 + 8400 * this->mOutputWidth];
-        break;
+        CHECK(cudaMalloc((void**)&this->tmpOutputSrc, this->gridStrideSize * (4 + 1 + NumClasses) * sizeof(float)));
+        CHECK(cudaMalloc((void**)&this->mOutputSrcDevice, this->gridStrideSize * (4 + 1 + NumClasses) * sizeof(float)));
+        CHECK(cudaMalloc((void**)&this->mOutputObjectDevice, (1 + gridStrideSize * this->mOutputWidth) * sizeof(float)));
     }
+    this->mOutputSrcHost = nullptr;
+    this->mOutputObjectHost = new float[1 + 8400 * this->mOutputWidth];
 }
 
 Yolo::~Yolo()
 {
     std::cout << "===> Destroy Yolo instance" <<std::endl;
-    switch (isDevice)
+    if (this->isDevice)
     {
-    case true:
         CHECK(cudaFree(this->gridStridesDevice));
         CHECK(cudaFree(this->mOutputSrcDevice));
         CHECK(cudaFree(this->mOutputObjectDevice));
-        break;
-    case false:
+        CHECK(cudaFree(this->tmpOutputSrc));
+    }
         delete[] this->gridStridesHost;
         delete[] this->mOutputObjectHost;
-        break;
-}
 }

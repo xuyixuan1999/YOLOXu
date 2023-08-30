@@ -7,7 +7,9 @@ double get_time();
 
 cv::Mat static_resize(cv::Mat& img, int INPUT_W, int INPUT_H);
 
-void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f);
+void draw_objects_save(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f);
+
+cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f);
 
 float* blobFromImage(cv::Mat& img);
 

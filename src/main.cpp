@@ -17,13 +17,13 @@ using namespace nvinfer1;
 
 int main() 
 {
-    // cudaSetDevice(DEVICE);
+    cudaSetDevice(DEVICE);
     // create a model using the API directly and serialize it to a stream
     std::string engine_dir = std::string("./yolox_s.trt");
     const std::string input_image_path = std::string("./car.jpg");
 
     Infer* infer = new Infer(engine_dir, ILogger::Severity::kWARNING);
-    Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, NMS_THRESH, false);
+    Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, NMS_THRESH, true);
     
     // read and resize image
     cv::Mat img = cv::imread(input_image_path);
@@ -58,17 +58,25 @@ int main()
     std::vector<Object> objects;
     double start = get_time();
     infer->CopyFromDeviceToDeviceIn(blob, 0);
-    for (int i = 0; i < 1000; i++)
+    int ntest = 100;
+
+    for (int i = 0; i < ntest; i++)
     {
         infer->Forward();
-        infer->CopyFromDeviceToHost(prob, 1);
-        cudaDeviceSynchronize();
+
+        // for device to decode the box
+        infer->CopyFromDeviceToDeviceOut(yolo->tmpOutputSrc, 1);
+        yolo->DecodeOutputDevice(objects, scale, img_w, img_h);
+
+        // for host to decode the box
+        // infer->CopyFromDeviceToHost(prob, 1);
+        // yolo->DecodeOutput(objects, prob.data(), scale, img_w, img_h);
     }
     double end = get_time();
-    std::cout << (end - start) * 1000 / 1000 << "ms" << std::endl;
+    std::cout << (end - start) * 1000 / ntest << "ms" << std::endl;
 
-    objects = yolo->DecodeOutput(prob.data(), scale, img_w, img_h);
-    draw_objects(img, objects, input_image_path);
+    
+    draw_objects_save(img, objects, input_image_path);
 
     delete infer;
     delete yolo;
