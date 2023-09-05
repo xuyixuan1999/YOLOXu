@@ -1,9 +1,28 @@
 #pragma once
 #include <opencv2/opencv.hpp>
-#include "yolo.h"
+
+struct AffineMatrix
+{
+    float v00, v01, v02;
+    float v10, v11, v12;
+};
+
+struct Object
+{
+    // cv::Rect_<float> rect;
+    float x, y, w, h;  // center and width, height
+    int label;
+    float prob;
+};
+
+enum TimeUnit {
+    SECONDS,
+    MILLISECONDS,
+    MICROSECONDS
+};
 
 // get cerurrent time in seconds
-double get_time();
+double get_time(TimeUnit unit = MILLISECONDS);
 
 cv::Mat static_resize(cv::Mat& img, int INPUT_W, int INPUT_H);
 
@@ -11,7 +30,7 @@ void draw_objects_save(const cv::Mat& bgr, const std::vector<Object>& objects, s
 
 cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f);
 
-float* blobFromImage(cv::Mat& img);
+void blobFromImage(float* blob, cv::Mat& img);
 
 const float color_list[80][3] =
 {

@@ -22,7 +22,7 @@ public:
     // inference
     void CopyFromDeviceToDeviceIn(float* input, int bindIndex, const cudaStream_t& stream = 0);
     void CopyFromDeviceToDeviceOut(float* output, int bindIndex, const cudaStream_t& stream = 0);
-    void CopyFromHostToDevice(int bindIndex, float* input, const cudaStream_t& stream = 0);
+    void CopyFromHostToDevice(float* input, int bindIndex, const cudaStream_t& stream = 0);
     void CopyFromDeviceToHost(std::vector<float>& output, int bindIndex, const cudaStream_t& stream = 0);
     void CopyFromDeviceToHost(float* output, int bindIndex, const cudaStream_t& stream = 0);
     bool Forward();

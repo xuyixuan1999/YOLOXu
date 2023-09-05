@@ -62,7 +62,7 @@ void Infer::CopyFromDeviceToDeviceOut(float* output, int bindIndex, const cudaSt
     mBindingSize[bindIndex], cudaMemcpyDeviceToDevice, stream));
 }
 
-void Infer::CopyFromHostToDevice(int bindIndex, float* input, const cudaStream_t& stream)
+void Infer::CopyFromHostToDevice(float* input, int bindIndex, const cudaStream_t& stream)
 {
     CHECK(cudaMemcpyAsync(mBinding[bindIndex], input, 
     mBindingSize[bindIndex], cudaMemcpyHostToDevice, stream));

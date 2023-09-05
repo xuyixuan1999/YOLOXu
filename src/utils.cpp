@@ -3,13 +3,24 @@
 #include <opencv2/opencv.hpp>
 #include "utils.h"
 
-double get_time()
+double get_time(TimeUnit unit)
 {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return ((double)tv.tv_usec * 0.000001 + tv.tv_sec);
-}
 
+    double timeInSeconds = (double)tv.tv_sec + ((double)tv.tv_usec * 0.000001);
+
+    switch (unit) {
+        case SECONDS:
+            return timeInSeconds;
+        case MILLISECONDS:
+            return timeInSeconds * 1000.0;
+        case MICROSECONDS:
+            return timeInSeconds * 1000000.0;
+        default:
+            return timeInSeconds * 1000.0;
+    }
+}
 
 cv::Mat static_resize(cv::Mat& img, int INPUT_W, int INPUT_H) {
     float r = std::min(INPUT_W / (img.cols*1.0), INPUT_H / (img.rows*1.0));
@@ -82,7 +93,7 @@ void draw_objects_save(const cv::Mat& bgr, const std::vector<Object>& objects, s
     // f = './xxx.jpg'  save as xxx_result.jpg
     std::string save_path = f.substr(0, f.size() - 4) + "_result.jpg";
     cv::imwrite(save_path, image);
-    fprintf(stderr, "save vis in %s\n", save_path.c_str());
+    std::cout << "save vis in " << save_path << std::endl;
 }
 
 cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std::string f)
@@ -149,21 +160,20 @@ cv::Mat draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects, std
     return image;
 }
 
-float* blobFromImage(cv::Mat& img){
-    float* blob = new float[img.total()*3];
+void blobFromImage(float* blob, cv::Mat& img)
+{
     int channels = 3;
     int img_h = img.rows;
     int img_w = img.cols;
-    for (size_t c = 0; c < static_cast<size_t>(channels); c++) 
+    for (int c = 0; c < channels; c++) 
     {
-        for (size_t h = 0; h < static_cast<size_t>(img_h); h++) 
+        for (int h = 0; h < img_h; h++) 
         {
-            for (size_t w = 0; w < static_cast<size_t>(img_w); w++) 
+            for (int w = 0; w < img_w; w++) 
             {
                 blob[c * img_w * img_h + h * img_w + w] =
                     (float)img.at<cv::Vec3b>(h, w)[c];
             }
         }
     }
-    return blob;
 }

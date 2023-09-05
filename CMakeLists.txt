@@ -23,8 +23,8 @@ set(CMAKE_CUDA_COMPILER  /usr/local/cuda/bin/nvcc)
 
 file(GLOB CPPS 
     ${PROJECT_SOURCE_DIR}/src/*.cpp
-    ${PROJECT_SOURCE_DIR}/src/*.cu
     ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/*.cu
 )
 list(REMOVE_ITEM CPPS ${PROJECT_SOURCE_DIR}/src/multi.cpp)
 set(src_list ${CPPS})
