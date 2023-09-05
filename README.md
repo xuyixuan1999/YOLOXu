@@ -6,9 +6,21 @@
 - 🚀 Easy, isolation the detection and inference.
 - ⚡ Fast, preprocess and postprocess with CUDA kernel function.
 
-## ONNX
+## ONNX2TRT
 
 Please use the official export script to export the ONNX file. Then use trtexec to convert the ONNX file to trt engine. 
+
+We provide the [ONNX Model](https://drive.google.com/file/d/19k7AxSO0Sn84OLqCNOxBfZLp8mXUTPCh/view?usp=drive_link), please place in the workspace folder and unzip, convert into trtengine.
+
+```sh
+trtexec \
+--onnx=yolox_s.onnx \
+--saveEngine=yolox_s.trt \
+--minShapes=images:1x3x640x640 \
+--optShapes=images:1x3x640x640 \
+--maxShapes=images:1x3x640x640 \
+--memPoolSize=workspace:2048MiB
+```
 
 ## Infer
 
