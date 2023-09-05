@@ -3,7 +3,7 @@
 [![Cuda](https://img.shields.io/badge/CUDA-11.3-%2376B900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit-archive)  [![TensorRT](./img/TensorRT.svg)](https://developer.nvidia.com/nvidia-tensorrt-8x-download) [![ubuntu](img/ubuntu.svg)](https://releases.ubuntu.com/18.04/)
 
 - 🔥 Support TensorRT for YOLOX.
-- 🚀 Easy, isolation the detection and inference.
+- 🚀 Easy, isolation of the detection and inference.
 - ⚡ Fast, preprocess and postprocess with CUDA kernel function.
 
 ## ONNX2TRT
