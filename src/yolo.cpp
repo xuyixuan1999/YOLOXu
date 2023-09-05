@@ -8,8 +8,8 @@ void Yolo::GenerateGridsAndStride(std::vector<int>& strides, int* gridStridesHos
 
     for (auto stride : strides)
     {
-        int num_grid_y = inputH / stride;
-        int num_grid_x = inputW / stride;
+        int num_grid_y = dstH / stride;
+        int num_grid_x = dstW / stride;
         for (int g1 = 0; g1 < num_grid_y; g1++)
         {
             for (int g0 = 0; g0 < num_grid_x; g0++)
@@ -117,35 +117,47 @@ float bboxConfThresh, float* objects, int numClass)
     objects[0] = count;
 }
 
-void Yolo::DecodeOutput(std::vector<Object>& objects, float* outputSrc, float scale, const int img_w, const int img_h)
+void Yolo::PreProcess(cv::Mat img)
+{
+    if (img.size() != mInputSize)
+    {
+        srcW = img.cols;
+        srcH = img.rows;
+        mInputSize = cv::Size(srcW, srcH);
+        mScale = std::min(dstW / (img.cols*1.0), dstH / (img.rows*1.0));
+    }
+    cv::Mat prImage = static_resize(img, dstW, dstH);
+    blobFromImage(mInputCHWHost, prImage);
+}
+
+void Yolo::PostProcess(std::vector<Object>& objects)
 {   
     // clear keepFlag and count
     memset(mOutputObjectHost, 0, (1 + gridStrideSize * mOutputWidth) * sizeof(float));
     objects.clear();
-    mOutputSrcHost = outputSrc;
-    GenerateYoloProposals(gridStridesHost, gridStrideSize, outputSrc, 
+    GenerateYoloProposals(gridStridesHost, gridStrideSize, mOutputSrcHost, 
     bboxConfThresh, mOutputObjectHost, NumClasses);
 
     int count = mOutputObjectHost[0];
-    std::cout << "num of boxes before nms: " << mOutputObjectHost[0] << std::endl;
+    // std::cout << "num of boxes before nms: " << mOutputObjectHost[0] << std::endl;
 
     NMS(mOutputObjectHost, iouThresh, mOutputWidth);
-    std::cout << "num of boxes after nms: " << mOutputObjectHost[0] << std::endl;
+    // std::cout << "num of boxes after nms: " << mOutputObjectHost[0] << std::endl;
 
     for (int i = 0; i < count; ++i)
     {
         float* pobject = mOutputObjectHost + 1 + i * mOutputWidth;
         if (pobject[6] == 0)
             continue;
-        float x0 = pobject[0] / scale;
-        float y0 = pobject[1] / scale;
-        float x1 = (pobject[0] + pobject[2]) / scale;
-        float y1 = (pobject[1] + pobject[3]) / scale;
+        float x0 = pobject[0] / mScale;
+        float y0 = pobject[1] / mScale;
+        float x1 = (pobject[0] + pobject[2]) / mScale;
+        float y1 = (pobject[1] + pobject[3]) / mScale;
         // clip 
-        x0 = std::max(std::min(x0, (float)(img_w - 1)), 0.f);
-        y0 = std::max(std::min(y0, (float)(img_h - 1)), 0.f);
-        x1 = std::max(std::min(x1, (float)(img_w - 1)), 0.f);
-        y1 = std::max(std::min(y1, (float)(img_h - 1)), 0.f);
+        x0 = std::max(std::min(x0, (float)(srcW - 1)), 0.f);
+        y0 = std::max(std::min(y0, (float)(srcH - 1)), 0.f);
+        x1 = std::max(std::min(x1, (float)(srcW - 1)), 0.f);
+        y1 = std::max(std::min(y1, (float)(srcH - 1)), 0.f);
 
         Object object;
         object.x = x0;
@@ -158,44 +170,73 @@ void Yolo::DecodeOutput(std::vector<Object>& objects, float* outputSrc, float sc
     }
 }
 
-void Yolo::DecodeOutputDevice(std::vector<Object>& objects, float scale, const int img_w, const int img_h, const cudaStream_t& stream)
+void Yolo::PreProcessDevice(cv::Mat img, cudaStream_t stream)
+{
+    if (img.size() != mInputSize)
+    {
+        srcW = img.cols;
+        srcH = img.rows;
+        mInputSize = cv::Size(srcW, srcH);
+        // malloc mInputDevice
+        CHECK(cudaMalloc((void**)&mInputDevice, srcW * srcH * img.channels() * sizeof(unsigned char)));
+        CHECK(cudaMalloc((void**)&this->mInputResizeDevice, dstH * dstW * img.channels() * sizeof(float)));
+        CHECK(cudaMalloc((void**)&this->mInputCHWDevice, dstH * dstW * img.channels() * sizeof(float)));
+
+        // update d2s
+        mScale = std::min(dstW / (img.cols*1.0), dstH / (img.rows*1.0));
+        cv::Point2f srcPoints[3] = {
+            cv::Point2f(0, 0),     // 左上角
+            cv::Point2f(img.cols-1, 0),     // 右上角
+            cv::Point2f(0, img.rows-1)      // 左下角
+        };
+
+        cv::Point2f dstPoints[3] = {
+            cv::Point2f(0, 0),     // 左上角
+            cv::Point2f(img.cols * mScale - 1 , 0),     // 右上角
+            cv::Point2f(0, img.rows* mScale - 1)      // 左下角
+        };
+        cv::Mat M = cv::getAffineTransform(dstPoints, srcPoints);
+        md2s.v00 = M.at<double>(0, 0);
+        md2s.v01 = M.at<double>(0, 1);
+        md2s.v02 = M.at<double>(0, 2);
+        md2s.v10 = M.at<double>(1, 0);
+        md2s.v11 = M.at<double>(1, 1);
+        md2s.v12 = M.at<double>(1, 2);
+    }
+    CHECK(cudaMemcpyAsync(mInputDevice, img.data, srcW * srcH * img.channels() * sizeof(unsigned char), cudaMemcpyHostToDevice, stream));
+    ResizePaddingDevice(mInputDevice, srcW, srcH, mInputResizeDevice, dstW, dstH, mScale, md2s, stream);
+    HWC2CHWDevice(mInputResizeDevice, mInputCHWDevice, dstW, dstH, img.channels(), stream);
+}
+
+void Yolo::PostProcessDevice(std::vector<Object>& objects, const cudaStream_t& stream)
 {
     // clear keepFlag and count
     CHECK(cudaMemset(mOutputObjectDevice, 0, (1 + gridStrideSize * mOutputWidth) * sizeof(float)));
     objects.clear();
 
-    CHECK(cudaMemcpyAsync(mOutputSrcDevice, tmpOutputSrc, 
-    gridStrideSize * (4 + 1 + NumClasses) * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-
     GenerateYoloProposalDevice(gridStridesDevice, gridStrideSize, mOutputSrcDevice, 
     mOutputObjectDevice,bboxConfThresh, NumClasses, stream);
-
-    // CHECK(cudaMemcpy(mOutputObjectHost, mOutputObjectDevice, 
-    // (1 + gridStrideSize * mOutputWidth) * sizeof(float), cudaMemcpyDeviceToHost));
-    // std::cout<< "num of boxes before nms: " << mOutputObjectHost[0] << std::endl;
-    // int count = mOutputObjectHost[0];
-    // NMS(mOutputObjectHost, iouThresh, mOutputWidth);
 
     FastNMSDevice(mOutputObjectDevice, iouThresh, mOutputWidth, topK, stream);
     CHECK(cudaMemcpyAsync(mOutputObjectHost, mOutputObjectDevice, 
     (1 + gridStrideSize * mOutputWidth) * sizeof(float), cudaMemcpyDeviceToHost, stream));
 
     int count = mOutputObjectHost[0];
-    std::cout << "num of boxes before nms: " << count << std::endl;
+    // std::cout << "num of boxes before nms: " << count << std::endl;
     for (int i = 0; i < count; ++i)
     {
         float* pobject = mOutputObjectHost + 1 + i * mOutputWidth;
         if (pobject[6])
         {
-            float x0 = pobject[0] / scale;
-            float y0 = pobject[1] / scale;
-            float x1 = (pobject[0] + pobject[2]) / scale;
-            float y1 = (pobject[1] + pobject[3]) / scale;
+            float x0 = pobject[0] / mScale;
+            float y0 = pobject[1] / mScale;
+            float x1 = (pobject[0] + pobject[2]) / mScale;
+            float y1 = (pobject[1] + pobject[3]) / mScale;
             // clip 
-            x0 = std::max(std::min(x0, (float)(img_w - 1)), 0.f);
-            y0 = std::max(std::min(y0, (float)(img_h - 1)), 0.f);
-            x1 = std::max(std::min(x1, (float)(img_w - 1)), 0.f);
-            y1 = std::max(std::min(y1, (float)(img_h - 1)), 0.f);
+            x0 = std::max(std::min(x0, (float)(srcW - 1)), 0.f);
+            y0 = std::max(std::min(y0, (float)(srcH - 1)), 0.f);
+            x1 = std::max(std::min(x1, (float)(srcW - 1)), 0.f);
+            y1 = std::max(std::min(y1, (float)(srcH - 1)), 0.f);
 
             Object object;
             object.x = x0;
@@ -207,27 +248,28 @@ void Yolo::DecodeOutputDevice(std::vector<Object>& objects, float scale, const i
             objects.push_back(object);
         }
     }
-    std::cout << "num of boxes after nms: " << objects.size() << std::endl;
+    // std::cout << "num of boxes after nms: " << objects.size() << std::endl;
 }
 
-Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float iouThresh, bool isDevice)
+Yolo::Yolo(int dstH, int dstW, int NumClasses, float bboxConfThresh, float iouThresh, bool isDevice)
 {
     this->NumClasses = NumClasses;
-    this->inputH = inputH;
-    this->inputW = inputW;
+    this->dstH = dstH;
+    this->dstW = dstW;
     this->mOutputWidth = 7;
     this->bboxConfThresh = bboxConfThresh;
     this->iouThresh = iouThresh;
     this->isDevice = isDevice;
 
     // generate grid strides
+    this->gridStrideSize = 0; // fix out of memeory error 
     for (auto stride : this->strides)
     {
-        int num_grid_y = inputH / stride;
-        int num_grid_x = inputW / stride;
+        int num_grid_y = dstH / stride;
+        int num_grid_x = dstW / stride;
         this->gridStrideSize += num_grid_y * num_grid_x;
     }
-    this->gridStridesHost = new int[this->gridStrideSize * this->strides.size()];
+    this->gridStridesHost = (int*)malloc(this->gridStrideSize * 3 * sizeof(int));
     this->GenerateGridsAndStride(this->strides, this->gridStridesHost);
 
     if (isDevice)
@@ -236,12 +278,18 @@ Yolo::Yolo(int inputH, int inputW, int NumClasses, float bboxConfThresh, float i
         this->gridStrideSize * this->strides.size() * sizeof(int)));
         CHECK(cudaMemcpy(this->gridStridesDevice, this->gridStridesHost, 
         this->gridStrideSize * this->strides.size() * sizeof(int), cudaMemcpyHostToDevice));
-        CHECK(cudaMalloc((void**)&this->tmpOutputSrc, this->gridStrideSize * (4 + 1 + NumClasses) * sizeof(float)));
+        // output
         CHECK(cudaMalloc((void**)&this->mOutputSrcDevice, this->gridStrideSize * (4 + 1 + NumClasses) * sizeof(float)));
         CHECK(cudaMalloc((void**)&this->mOutputObjectDevice, (1 + gridStrideSize * this->mOutputWidth) * sizeof(float)));
+        CHECK(cudaMallocHost((void**)&this->mOutputObjectHost, (1 + gridStrideSize * this->mOutputWidth) * sizeof(float)));
     }
-    this->mOutputSrcHost = nullptr;
-    this->mOutputObjectHost = new float[1 + 8400 * this->mOutputWidth];
+    else
+    {
+        this->mInputCHWHost = (float*)malloc(dstH * dstW * 3 * sizeof(float));
+        this->mOutputSrcHost = (float*)malloc(this->gridStrideSize * (4 + 1 + NumClasses) * sizeof(float));
+        this->mOutputObjectHost = (float*)malloc((1 + gridStrideSize * this->mOutputWidth) * sizeof(float));
+    }
+    
 }
 
 Yolo::~Yolo()
@@ -249,11 +297,19 @@ Yolo::~Yolo()
     std::cout << "===> Destroy Yolo instance" <<std::endl;
     if (this->isDevice)
     {
+        CHECK(cudaFree(this->mInputResizeDevice));
+        CHECK(cudaFree(this->mInputCHWDevice));
+        CHECK(cudaFree(this->mInputDevice));
         CHECK(cudaFree(this->gridStridesDevice));
         CHECK(cudaFree(this->mOutputSrcDevice));
         CHECK(cudaFree(this->mOutputObjectDevice));
-        CHECK(cudaFree(this->tmpOutputSrc));
+
+        CHECK(cudaFreeHost(this->mOutputObjectHost));
     }
-        delete[] this->gridStridesHost;
-        delete[] this->mOutputObjectHost;
+    else{
+        free(this->mOutputSrcHost);
+        free(this->mInputCHWDevice);
+        free(this->mOutputObjectHost);
+    }
+    free(this->gridStridesHost);   
 }

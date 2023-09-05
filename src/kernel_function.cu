@@ -110,6 +110,79 @@ void FastNMS(float* objects, float iouThresh, int objectWidth, int topK)
     }
 }
 
+// (x, y) -> (projX, projY)
+__device__
+void AffineProjectKernel(AffineMatrix* matrix, int x, int y, float* projX, float* projY)
+{
+    *projX = matrix->v00 * x + matrix->v01 * y + matrix->v02;
+    *projY = matrix->v10 * x + matrix->v11 * y + matrix->v12;
+}
+
+__global__
+void ResizeNearestPaddingKernel(uchar* src, int srcWidth, int srcHeight, float* dst, int dstWidth, int dstHeight, 
+                                int widthPadding, int heightPadding, uchar paddingValue, AffineMatrix d2s)
+{
+    int dx = blockIdx.x * blockDim.x + threadIdx.x;  // dstWidth
+    int dy = blockIdx.y * blockDim.y + threadIdx.y;  // dstHeight
+    if (dx >= dstWidth || dy >= dstHeight)
+        return;
+    float projX = 0;
+    float projY = 0;
+    AffineProjectKernel(&d2s, dx, dy, &projX, &projY);
+    float c0, c1, c2;
+    if (dx >= dstWidth - widthPadding || dy >= dstHeight - heightPadding)
+    {
+        c0 = paddingValue;
+        c1 = paddingValue;
+        c2 = paddingValue;
+    }
+    else
+    {
+        int srcX = floor(projX + 0.5f);
+        int srcY = floor(projY + 0.5f);
+        
+        if (srcX < 0 || srcX >= srcWidth || srcY < 0 || srcY >= srcHeight)
+        {
+            c0 = paddingValue;
+            c1 = paddingValue;
+            c2 = paddingValue;
+        }
+        else
+        {
+            c0 = static_cast<float>(src[srcY * srcWidth * 3 + srcX * 3]);
+            c1 = static_cast<float>(src[srcY * srcWidth * 3 + srcX * 3 + 1]);
+            c2 = static_cast<float>(src[srcY * srcWidth * 3 + srcX * 3 + 2]);
+        }
+    }
+    float* pdst = dst + dy * dstWidth * 3 + dx * 3;
+    *pdst++ = c0;
+    *pdst++ = c1;
+    *pdst++ = c2;
+}
+
+__global__
+void ResizeBilinearPaddingKernel(uchar* src, int srcWidth, int srcHeight, float* dst, int dstWidth, int dstHeight,
+                                int widthPadding, int heightPadding, uchar paddingValue, AffineMatrix d2s)
+{
+    int dx = blockIdx.x * blockDim.x + threadIdx.x;  // dstWidth
+    int dy = blockIdx.y * blockIdx.y + threadIdx.y;  // dstHeight
+    if (dx >= dstWidth || dy >= dstHeight)
+        return;
+    // coming soon
+}
+__global__
+void HWC2CHWKernel(float* src, float* dst, int width, int height, int channels)
+{
+    int w = blockIdx.x * blockDim.x + threadIdx.x;
+    int h = blockIdx.y * blockDim.y + threadIdx.y;
+    if (w >= width || h >= height)
+        return;
+    for (int c = 0; c < channels; ++c)
+    {
+        dst[c * height * width + h * width + w] = src[h * width * channels + w * channels + c];
+    }
+}
+
 void FastNMSDevice(float* objects, float iouThresh, int objectWidth, int topK, const cudaStream_t& stream)
 {
     dim3 blockSize(BLOCK_SIZE);
@@ -123,6 +196,24 @@ void GenerateYoloProposalDevice(int* gridStrides, int gridStrideSize, float* out
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridSize((gridStrideSize + blockSize.x - 1) / blockSize.x, (numClass + blockSize.y - 1) / blockSize.y);
     GenerateYoloProposalKernel<<<gridSize, blockSize, 0, stream>>>(gridStrides, gridStrideSize, outputSrc, objects, bboxConfThresh, numClass);
+}
+
+void ResizePaddingDevice(uchar* src, int srcWidth, int srcHeight, float* dst, int dstWidth, int dstHeight, float scale, AffineMatrix d2s, const cudaStream_t& stream)
+{
+    dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 gridSize((dstWidth + blockSize.x - 1) / blockSize.x, (dstHeight + blockSize.y - 1) / blockSize.y);
+
+    int heightPadding = (dstHeight - srcHeight * scale);
+    int widthPadding = (dstWidth - srcWidth * scale);
+    uchar paddingValue = 114;
+    ResizeNearestPaddingKernel<<<gridSize, blockSize, 0, stream>>>(src, srcWidth, srcHeight, dst, dstWidth, dstHeight, widthPadding, heightPadding, paddingValue, d2s);
+}
+
+void HWC2CHWDevice(float* src, float* dst, int width, int height, int channels, const cudaStream_t& stream)
+{
+    dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+    HWC2CHWKernel<<<gridSize, blockSize, 0, stream>>>(src, dst, width, height, channels);
 }
 
 void blobFromImageCuda(float* blobDev, const cv::Mat& img, const cudaStream_t& stream) 
@@ -143,3 +234,69 @@ void blobFromImageCuda(float* blobDev, const cv::Mat& img, const cudaStream_t& s
 
     cudaFree(imgDataDev);  // Free GPU memory used for image data
 }
+
+
+// int main()
+// {
+//     cv::Mat img = cv::imread("car.jpg");
+//     int channels = img.channels();
+//     int img_h = img.rows;
+//     int img_w = img.cols;
+//     int img_size = img.total() * img.channels();
+//     uchar* imgDataDev = nullptr;
+//     cudaMalloc((void**)&imgDataDev, img_size * sizeof(uchar));
+//     cudaMemcpy(imgDataDev, img.data, img_size * sizeof(uchar), cudaMemcpyHostToDevice);
+
+//     int dst_w = 640;
+//     int dst_h = 640;
+
+//     float* dstImage = nullptr;
+//     cudaMalloc((void**)&dstImage, dst_w * dst_h * channels * sizeof(float));
+
+//     float scale = std::min(dst_w / (img_w * 1.0f), dst_h / (img_h * 1.0f));
+
+//     std::cout << scale << std::endl;
+
+//         // 源图像上的三个点和目标图像上的对应三个点
+//     cv::Point2f srcPoints[3] = {
+//         cv::Point2f(0, 0),     // 左上角
+//         cv::Point2f(img_w-1, 0),     // 右上角
+//         cv::Point2f(0, img_h-1)      // 左下角
+//     };
+
+//     cv::Point2f dstPoints[3] = {
+//         cv::Point2f(0, 0),     // 左上角
+//         cv::Point2f((int) img_w * scale - 1 , 0),     // 右上角
+//         cv::Point2f(0, (int) img_h* scale - 1)      // 左下角
+//     };
+
+//     cv::Mat M = cv::getAffineTransform(dstPoints, srcPoints);
+
+//     std::cout << "Scale is: " << 1.0f / scale << std::endl;
+
+//     std::cout << "Affine Transformation Matrix:\n" << M << std::endl;
+
+    
+//     std::cout<< "Affine Transformation Matrix:\n" << d2s.v00 << " " << d2s.v01 << " " << d2s.v02 << " " << d2s.v10 << " " << d2s.v11 << " " << d2s.v12 << std::endl;
+
+//     AffineMatrix d2s;
+//     d2s.v00 = M.at<double>(0, 0);
+//     d2s.v01 = M.at<double>(0, 1);
+//     d2s.v02 = M.at<double>(0, 2);
+//     d2s.v10 = M.at<double>(1, 0);
+//     d2s.v11 = M.at<double>(1, 1);
+//     d2s.v12 = M.at<double>(1, 2);
+
+    
+//     ResizePaddingDevice(imgDataDev, img_w, img_h, dstImage, dst_w, dst_h, scale, d2s, 0);
+
+//     float* hostData = new float[dst_w * dst_h * channels];
+//     cudaMemcpy(hostData, dstImage, dst_w * dst_h * channels * sizeof(float), cudaMemcpyDeviceToHost);
+//     cv::Mat result(dst_h, dst_w, CV_32FC(channels), hostData);
+
+//     result.convertTo(result, CV_8UC3);
+//     cv::imwrite("result.jpg", result);
+
+//     delete[] hostData;
+//     return 0;
+// }
