@@ -1,6 +1,7 @@
 # TensorRT-YOLOXu
 
-[![Cuda](https://img.shields.io/badge/CUDA-11.3-%2376B900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit-archive)  [![TensorRT](./img/TensorRT.svg)](https://developer.nvidia.com/nvidia-tensorrt-8x-download) [![ubuntu](img/ubuntu.svg)](https://releases.ubuntu.com/18.04/)
+[![Cuda](https://img.shields.io/badge/CUDA-11.4-%2376B900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit-archive)  [![TensorRT](https://img.shields.io/badge/TensorRT-8.4-%2376B900?logo=nvidia)](https://developer.nvidia.com/nvidia-tensorrt-8x-download) [![ubuntu](https://img.shields.io/badge/ubuntu-20.04-orange?logo=ubuntu
+)](https://releases.ubuntu.com/18.04/)
 
 - 🔥 Support TensorRT for YOLOX.
 - 🚀 Easy, isolation of the detection and inference.
