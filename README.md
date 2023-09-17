@@ -7,6 +7,11 @@
 - 🚀 Easy, isolation of the detection and inference.
 - ⚡ Fast, preprocess and postprocess with CUDA kernel function.
 
+## NEWS
+- `2023-09-05` Suppurt GPU of preprocess and post preprocess
+- `2023-08-30` Suppurt CPU of preprocess and post preprocess
+- `2023-08-28` Suppurt easy TensorRT by the Infer class
+
 ## ONNX2TRT
 
 Please use the official export script to export the ONNX file. Then use trtexec to convert the ONNX file to trt engine. 
@@ -25,7 +30,7 @@ trtexec \
 
 ## Infer
 
-🔥 We isolate detection and inference into two classes: 'Infer' and 'Yolo.
+We isolate detection and inference into two classes: 'Infer' and 'Yolo.
 
 The 'Infer' class is designed to make learning TensorRT easier, especially when it comes to setting parameters, managing memory, and performing inference. 
 
