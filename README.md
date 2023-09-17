@@ -53,6 +53,8 @@ The 'Yolo' class is designed for fast detection and deployment on edge devices.
 
 We perform all preprocessing and postprocessing using CUDA operations, achieving fast detection.
 
+Inference with GPU, and preprocess and postprocess with CPU:
+
 ```c++
 // create yolo 
 Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, IOU_THRESH, USE_DEVICE);
@@ -69,6 +71,25 @@ infer->CopyFromHostToDevice(yolo->mInputCHWHost, 0);
 infer->Forward();
 infer->CopyFromDeviceToHost(yolo->mOutputSrcHost, 1);
 yolo->PostProcess(objects);
+```
+
+Inference with GPU, and preprocess and postprocess with GPU:
+```c++
+// create yolo
+Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, IOU_THRESH, USE_DEVICE);
+// INPUT_H and INPUT_W is the shape of the input of engine
+
+// prepare to save the objects
+std::vector<Object> objects;
+
+// load image
+cv::Mat img = cv::imread(input_image_path);
+// preprocess and inference
+yolo->PreProcessDevice(img);
+infer->CopyFromDeviceToDeviceIn(yolo->mInputCHWHost, 0);
+infer->Forward();
+infer->CopyFromDeviceToDeviceOut(yolo->mOutputSrcHost, 1);
+yolo->PostProcessDevice(objects);
 ```
 
 ## Reference
