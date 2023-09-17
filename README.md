@@ -8,8 +8,8 @@
 - ⚡ Fast, preprocess and postprocess with CUDA kernel function.
 
 ## NEWS
-- `2023-09-05` Suppurt GPU of preprocess and post preprocess
-- `2023-08-30` Suppurt CPU of preprocess and post preprocess
+- `2023-09-05` Suppurt GPU of preprocess and postprocess
+- `2023-08-30` Suppurt CPU of preprocess and postprocess
 - `2023-08-28` Suppurt easy TensorRT by the Infer class
 
 ## ONNX2TRT
