@@ -28,6 +28,17 @@ trtexec \
 --memPoolSize=workspace:2048MiB
 ```
 
+## Build
+
+Please install the [TensorRT](https://developer.nvidia.com/nvidia-tensorrt-8x-download) and [CUDA](https://developer.nvidia.com/cuda-toolkit-archive) first.
+
+And change the `CUDA_DIR`, `CUDNN_DIR`, `TENSORRT_DIR ` and  `CUDA_ARCH` in the [CMakeLists.txt](./CMakeLists.txt) file. The `CUDA_ARCH` is the GPU architecture, like Jetson AGX Orin's CUDA_ARCH is: `sm_87`, you can find it in the [CUDA_ARCH](https://developer.nvidia.com/cuda-gpus) page.
+
+```sh
+mkdir build && cd build
+cmake ..
+make -j
+```
 ## Infer
 
 We isolate detection and inference into two classes: 'Infer' and 'Yolo.
