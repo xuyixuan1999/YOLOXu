@@ -7,6 +7,8 @@
 - 🚀 Easy, isolation of the detection and inference.
 - ⚡ Fast, preprocess and postprocess with CUDA kernel function.
 
+![street](./workspace/street_result.jpg)
+
 ## NEWS
 - `2023-09-05` Suppurt GPU of preprocess and postprocess
 - `2023-08-30` Suppurt CPU of preprocess and postprocess
