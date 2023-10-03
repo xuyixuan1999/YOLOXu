@@ -67,6 +67,7 @@ We perform all preprocessing and postprocessing using CUDA operations, achieving
 Inference with GPU, and preprocess and postprocess with CPU:
 
 ```c++
+#define USE_DEVICE false
 // create yolo 
 Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, IOU_THRESH, USE_DEVICE);
 // INPUT_H and INPUT_W is the shape of the input of engine
@@ -86,6 +87,7 @@ yolo->PostProcess(objects);
 
 Inference with GPU, and preprocess and postprocess with GPU:
 ```c++
+#define USE_DEVICE true
 // create yolo
 Yolo* yolo = new Yolo(INPUT_H, INPUT_W, NUM_CLASSES, BBOX_CONF_THRESH, IOU_THRESH, USE_DEVICE);
 // INPUT_H and INPUT_W is the shape of the input of engine
