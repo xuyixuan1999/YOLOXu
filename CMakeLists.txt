@@ -15,7 +15,7 @@ set(CUDNN_DIR "/usr/lib/aarch64-linux-gnu")
 set(TENSORRT_DIR "/usr/src/tensorrt")
 
 # add compute capability of the GPU
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_87,code=sm_87")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_xx,code=sm_xx")
 
 find_package(CUDA REQUIRED)
 
